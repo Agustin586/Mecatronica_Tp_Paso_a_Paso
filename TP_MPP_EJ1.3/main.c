@@ -11,10 +11,9 @@
 #include <stdint.h>
 
 #define FREQ_RELOJ  1000000
-#define DELAY_10MS      __delay_cycles(10000)
+#define DELAY_10MS  __delay_cycles(10000)
 
-#define BUTTON1_READ (P2IN & BIT6)
-#define BUTTON2_READ (P8IN & BIT1)
+#define BUTTON3_READ (P2IN & BIT3)
 
 #define STEP_FULL       1
 #define STEP_HALF       2
@@ -25,6 +24,8 @@
 #define TOTAL_ANGLE     360
 #define PASO            1.8
 #define VUELTA_COMPLETA(x,step) (TOTAL_ANGLE*x*step)/PASO
+
+#define FREQ_PULSOS __delay_cycles(5000)   // 200 Hz dado que 2 Hz era muy lento
 
 /* Function that sets the clocks registers*/
 void configureClocks()
@@ -116,33 +117,6 @@ void button1()
     __delay_cycles(100);    // time for the changes to be done
 
     //Agregue las funcionalidades del pulsador aqui debajo
-    uint16_t i = 0;
-    uint16_t cant_vueltas = VUELTA_COMPLETA(2,pow(2,count));
-
-    for (i = 0; i < cant_vueltas; i++)
-    {
-        step();
-
-        switch (count) {
-            case 0:
-                __delay_cycles(10000);
-                break;
-            case 1:
-                __delay_cycles(10000/2);
-                break;
-            case 2:
-                __delay_cycles(10000/4);
-                break;
-            case 3:
-                __delay_cycles(10000/8);
-                break;
-            case 4:
-                __delay_cycles(10000/16);
-                break;
-            default:
-                break;
-        }
-    }
 }
 
 void button2()
@@ -161,8 +135,6 @@ void button2()
         count = 0;
 
     setPrecision(pow(2, count));
-
-    while(BUTTON2_READ);
 }
 
 void button3()
@@ -171,8 +143,16 @@ void button3()
     P6OUT |= BIT6; // set output for ~RESET
     P4OUT &= ~BIT1; // set output for ~ENABLE
     __delay_cycles(100); // time for the changes to be done
-    //Agregue las funcionalidades del pulsador aqui debajo
 
+    //Agregue las funcionalidades del pulsador aqui debajo
+    uint16_t i = 0;
+    uint16_t cant_vueltas = VUELTA_COMPLETA(10,pow(2,count));
+
+    for (i = 0; i < cant_vueltas; i++)
+    {
+        step();         // Pulsos
+        FREQ_PULSOS;    // Delay de 200 Hz
+    }
 }
 
 /* pressing this button the state is reseted (interruption enabled for this one) */
@@ -244,18 +224,9 @@ void main()
     {
         P1OUT &= ~BIT6; // driver in sleep mode
 
-        if (BUTTON1_READ)
-        {
-            button1();
-        }
-        if (BUTTON2_READ)
-        {
-            button2();
-        }
-//        if ((P2IN & BIT3) != 0)
-//        {
-//            button3();
-//        }
+        if (BUTTON3_READ)
+            button3();
+
         __delay_cycles(10000); // to avoid entering multiple times when pushing only once
     }
 }
