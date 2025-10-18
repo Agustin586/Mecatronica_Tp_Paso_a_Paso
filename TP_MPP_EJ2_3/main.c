@@ -1,13 +1,13 @@
 /* TP: Stepper Motor
  *
- * Asignatura:  Dinámica y Control de Sistemas Mecatrónicos
+ * Asignatura:  Din�mica y Control de Sistemas Mecatr�nicos
  *
  * Catedra: DSF
  *
- * Enunciado:   Implemente una función que utilice un timer A para que el motor se mueva a 1 Hz al presionar
- el pulsador 1, mantenga este comportamiento, pero además permita utilizar otros pulsadores que modifiquen
- Enunciado_TP-MPP – Rev. 2025 DyCSM Código: TP-MPP Página 8 de 8
- su frecuencia, por ejemplo aumentándola a 2 Hz. Luego auméntela a 10Hz y analice lo ocurrido comparando
+ * Enunciado:   Implemente una funci�n que utilice un timer A para que el motor se mueva a 1 Hz al presionar
+ el pulsador 1, mantenga este comportamiento, pero adem�s permita utilizar otros pulsadores que modifiquen
+ Enunciado_TP-MPP � Rev. 2025 DyCSM C�digo: TP-MPP P�gina 8 de 8
+ su frecuencia, por ejemplo aument�ndola a 2 Hz. Luego aum�ntela a 10Hz y analice lo ocurrido comparando
  los resultados con la curva torque-velocidad de la Figura 6.
  */
 #include <msp430.h>
@@ -19,9 +19,8 @@
 #include <stdbool.h>
 
 // FRECUENCIA DE VELOCIDAD
-#define FREQ_STEP_MAX   1000 // Hz
-#define FREQ_STEP_MIN   100  // Hz
-#define FREQ_ACTUAL(Nmax,N) (((int32_t)(FREQ_STEP_MIN - FREQ_STEP_MAX) * (int32_t)(N)) / (int32_t)(Nmax) + FREQ_STEP_MAX)
+#define FREQ_STEP_MAX   10 // Hz
+#define FREQ_STEP_MIN   1  // Hz
 // LECTURA DE BOTONES
 #define BUTTON1_READ    (P2IN & BIT6)
 #define BUTTON2_READ    (P8IN & BIT1)
@@ -39,23 +38,19 @@
 #define FREQ_RELOJ          1000000.0
 #define TIMER_A_PRESCALER   8.0
 #define TIMER_A_FREQ        FREQ_RELOJ/TIMER_A_PRESCALER
-// PERIODO DE TIMER A
-#define TIMER_A_FREQ_OUTPUT(pasosPorSegundo)  (TIMER_A_FREQ)/(pasosPorSegundo)
 // FRECUENCIA DEL MOTOR PASO A PASO
 #define MOTOR_PASOS_POR_SEGUNDO(x)  200.0*x
-#define MOTOR_VUELTA_1HZ            1.0
-#define MOTOR_VUELTA_2HZ            MOTOR_VUELTA_1HZ*2
-#define MOTOR_VUELTA_10HZ           MOTOR_VUELTA_1HZ*10
 
 // === VARIABLES ===
 int precision = 1;
 int count     = 0;
-int maxPasos  = 0;
 
 int *const pPrecision = &precision;
 
 volatile bool   stepEnabled  = false;
-volatile int    tmrSotfPasos = 0;    
+volatile int    tmrSotfPasos = 0;
+
+int countPasos = 0;
 
 typedef enum {
     MOTOR_FREQ_MODO_1HZ = 0,
@@ -67,7 +62,7 @@ motor_modo_enum motorModo = MOTOR_FREQ_MODO_1HZ;
 
 // === FUNCIONES ===
 void stepWithTimerA();
-void configPeriodTimerA();
+void configPeriodTimerA(float freq);
 void step();
 void configure_timerA();
 void delay_cycles_var(uint32_t ciclos);
@@ -173,54 +168,12 @@ void button1()
         ;
 
     // --- MENSAJE POR PANTALLA ---
-    printf("VELOCIDAD DE 1HZ\r\n");
+    printf("RAMPA DE VELOCIDAD\r\n");
 
     // --- CONFIGURAICIONES DEL TIMER A ---
-    motorModo = MOTOR_FREQ_MODO_1HZ;
+    tmrSotfPasos = 200;
     stepEnabled = true;
-    configPeriodTimerA();
-}
-
-void button2()
-{
-    P1OUT |= BIT6;          // driver out of sleep mode
-    P6OUT |= BIT6;          // set output for ~RESET
-    P4OUT &= ~BIT1;         // set output for ~ENABLE
-    __delay_cycles(100);    // time for the changes to be done
-
-    //Agregue las funcionalidades del pulsador aqui debajo
-    // --- ANTIRREBOTE ---
-    while (BUTTON2_READ)
-        ;
-
-    // --- MENSAJE POR PANTALLA ---
-    printf("VELOCIDAD DE 2HZ\r\n");
-
-    // --- CONFIGURACIONES DEL TIMER A ---
-    motorModo = MOTOR_FREQ_MODO_2HZ;
-    stepEnabled = true;
-    configPeriodTimerA();
-}
-
-void button3()
-{
-    P1OUT |= BIT6;          // driver out of sleep mode
-    P6OUT |= BIT6;          // set output for ~RESET
-    P4OUT &= ~BIT1;         // set output for ~ENABLE
-    __delay_cycles(100);    // time for the changes to be done
-
-    // Nueva de aca para abajo
-    // --- ANTIRREBOTE ---
-    while (BUTTON3_READ)
-        ;
-
-    // --- MENSAJE POR PANTALLA ---
-    printf("VELOCIDAD DE 10HZ\r\n");
-
-    // --- CONFIGURACIONES DEL TIMER A ---
-    motorModo = MOTOR_FREQ_MODO_10HZ;
-    stepEnabled = true;
-    configPeriodTimerA();
+    configPeriodTimerA(1);
 }
 
 /* pressing this button the state is reseted (interruption enabled for this one) */
@@ -242,6 +195,7 @@ void initParameters()
     stepEnabled = false;
     motorModo = MOTOR_FREQ_MODO_1HZ;
     tmrSotfPasos = 0;
+    countPasos = 0;
 
     setPrecision(STEP_FULL);
     configure_timerA();
@@ -299,12 +253,6 @@ void main()
         if (BUTTON1_READ)
             button1();
 
-        if (BUTTON2_READ)
-            button2();
-
-        if (BUTTON3_READ)
-            button3();
-
         stepWithTimerA();
     }
 }
@@ -314,39 +262,25 @@ void stepWithTimerA()
     if (!tmrSotfPasos && stepEnabled)
     {
         step();
-        configPeriodTimerA();   // Reinicia el TimerA0
+        countPasos++;
+        if (countPasos >= 10)
+            countPasos = 1;
+        configPeriodTimerA(countPasos);   // Reinicia el TimerA0
     }
 }
 
 /**
  * @brief Configura el timer por software para generar los
  * pasos del motor cada cierto periodo especificado.
+ * 
+ * @param freq frecuencia de pasos
  */
-void configPeriodTimerA()
+void configPeriodTimerA(float freq)
 {
-    switch (motorModo)
-    {
-    case MOTOR_FREQ_MODO_1HZ:
-        TA0CCR0 = 625;
-        tmrSotfPasos = 200; // 1s/5ms = 200
-        break;
-    case MOTOR_FREQ_MODO_2HZ:
-        TA0CCR0 = 625;
-        tmrSotfPasos = 100;
-        /*
-         * Limitacion del motor: No puede hacer 400 pasos por segundo, osea 2 vueltas en un segundo.
-         * */
-        break;
-    case MOTOR_FREQ_MODO_10HZ:
-        TA0CCR0 = 625;
-        tmrSotfPasos = 20;
-        
-        break;
-    default:
-        printf("Error");
-        assert(0);
-        break;
-    }
+    float T = 0;
+
+    T = 1.0/freq;
+    tmrSotfPasos =  (int)(T/0.005); // Configurado en 5ms
 }
 
 // Interruption routine for the port 2
